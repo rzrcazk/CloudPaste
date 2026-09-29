@@ -7,7 +7,6 @@ import {
   makeVersionMigrationId,
   markMigrationsApplied,
   APP_SCHEMA_VERSION,
-  REQUIRED_TABLES,
 } from "./adoptUtils.js";
 import { initDatabase } from "../engine/initDatabase.js";
 
@@ -31,32 +30,23 @@ export default {
     // legacyVersion 仅用于“旧库接管”：若旧库有 schema_version，则按其版本上限预标记 app-v01..app-vN
     const legacyVersion = hasSystemSettings ? await getLegacySchemaVersionFromSystemSettings(db) : 0;
 
-    // 新库/缺表库：直接建到最终态，然后 squash 标记 v01..vN
-    let needsTablesCreation = false;
-    for (const tableName of REQUIRED_TABLES) {
-      if (!existingTables.has(tableName)) {
-        needsTablesCreation = true;
-        break;
-      }
-    }
-
     const isExistingDb = await looksLikeExistingDatabase(db, existingTables);
+    const needsInitialization = legacyVersion === 0 && !isExistingDb;
 
-    // 运行时负责 schema + 默认设置/默认数据：
-    // - 纯新库（无表） => needsTablesCreation=true
-    // - 仅有 schema（例如用 schema.sql 手工创建了表，但无数据）=> isExistingDb=false
-    // - 老库（有业务数据）=> isExistingDb=true 且通常 needsTablesCreation=false
-    if (needsTablesCreation || !isExistingDb) {
+    // 老库缺少新版表是正常升级场景，必须先按版本迁移。
+    // 直接初始化最终态会在旧表缺少新列时提前创建索引并失败。
+    // 只有无旧版本、无业务数据的新库才初始化并 squash。
+    if (needsInitialization) {
       await initDatabase(db);
     }
 
     // adopt 标记范围：
     // - 旧库：按 legacy schema_version（上限为当前应用版本）
-    // - 新库/缺表库：按当前应用版本（已初始化到最终态）
+    // - 新库：按当前应用版本（已初始化到最终态）
     const capVersion =
       legacyVersion > 0
         ? Math.min(legacyVersion, APP_SCHEMA_VERSION)
-        : needsTablesCreation || !isExistingDb
+        : needsInitialization
           ? APP_SCHEMA_VERSION
           : 0;
 

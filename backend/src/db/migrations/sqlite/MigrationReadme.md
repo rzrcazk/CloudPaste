@@ -32,7 +32,8 @@
 
 - `plan/adoptSchemaMigrations.js`
   - “接管迁移状态”的一次性迁移：
-    - 新库/缺表库：执行 `engine/initDatabase.js` 直接把库建到最终态，然后把 `app-v01..app-vNN` 批量写入 `schema_migrations`（squash），避免新库误跑历史迁移。
+    - 无旧版本且无业务数据的新库：执行 `engine/initDatabase.js` 直接把库建到最终态，然后把 `app-v01..app-vNN` 批量写入 `schema_migrations`（squash），避免新库误跑历史迁移。
+    - 旧库缺少新版表时，仍按版本链升级，不能提前调用最终态初始化（旧表可能还没有新索引依赖的列）。
     - 旧库：如果存在 `system_settings.schema_version`，按其版本上限把 `app-v01..app-vNN` 写入 `schema_migrations`（squash），随后删除 `system_settings` 里的 legacy key（`schema_version/db_initialized`）。
 
 - `plan/versions.js`
